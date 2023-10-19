@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"io"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nayak-nirmalya/rssagg/internal/database"
 )
 
@@ -47,7 +49,33 @@ func scrapeFeed(db *database.Queries, wg *sync.WaitGroup, feed database.Feed) {
 		return
 	}
 	for _, item := range feedData.Channel.Item {
-		log.Println("Found post", item.Title)
+		description := sql.NullString{}
+		if item.Description != "" {
+			description.String = item.Description
+			description.Valid = true
+		}
+
+		pubAt, err := time.Parse(time.RFC1123Z, item.PubDate)
+		if err != nil {
+			log.Printf("couldn't parse date %v with err %v", item.PubDate, err)
+		}
+
+		_, err = db.CreatePost(context.Background(),
+
+			database.CreatePostParams{
+				ID:          uuid.New(),
+				CreatedAt:   time.Now().UTC(),
+				UpdatedAt:   time.Now().UTC(),
+				FeedID:      feed.ID,
+				Title:       item.Title,
+				Description: description,
+				Url:         item.Link,
+				PublishedAt: pubAt,
+			})
+
+		if err != nil {
+			log.Printf("Failed to create post: %v", err)
+		}
 	}
 	log.Printf("Feed %s collected, %v posts found", feed.Name, len(feedData.Channel.Item))
 }
